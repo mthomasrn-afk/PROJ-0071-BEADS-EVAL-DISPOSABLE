@@ -1,0 +1,88 @@
+# Isolated candidate screen; public standard GitHub runners; manual only.
+name: PROJ-0071 Beads offline isolation MANUAL ONLY
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Download checksum-pinned Linux archive and container before isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl --fail --location --retry 2 --max-time 240 --silent --show-error -o beads_1.3.1_linux_amd64.tar.gz https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz
+          echo '3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c  beads_1.3.1_linux_amd64.tar.gz' | sha256sum -c -
+          docker pull python:3.11-slim-bookworm
+          docker image inspect python:3.11-slim-bookworm --format 'CONTAINER_IMAGE_ID={{.Id}}'
+      - name: Offline CLI test across fully restarted network-disabled containers
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -- --rm --network none --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" -v "$PWD:/src:ro" -v "$RUNNER_TEMP:/work:rw" -w /src
+          docker run "$@" python:3.11-slim-bookworm python3 -c 'import socket; s=socket.socket(); rc=s.connect_ex(("1.1.1.1",443)); print("OFFLINE_PROBE",rc); assert rc != 0'
+          docker run "$@" python:3.11-slim-bookworm python3 -B /src/PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --self-test
+          docker run "$@" python:3.11-slim-bookworm python3 -B /src/PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --platform linux --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/beads-offline-qualification --phase seed
+          docker run "$@" python:3.11-slim-bookworm python3 -B /src/PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --platform linux --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/beads-offline-qualification --phase resume
+          echo LINUX_NETWORK_ISOLATED_RECOVERY_COMPLETE
+  windows-offline:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Download checksum-pinned Windows archive before isolation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $file = Join-Path $env:RUNNER_TEMP 'beads_1.3.1_windows_amd64.zip'
+          curl.exe --fail --location --retry 2 --max-time 240 --silent --show-error --output $file https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_windows_amd64.zip
+          if ($LASTEXITCODE -ne 0) { throw 'BLOCKED_DOWNLOAD' }
+          $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output "ARCHIVE_SHA256=$hash"
+          if ($hash -ne '48cd82e1d3e311c9bf9a5d6d67ad1a8542ae13d4e20c5bfb527656c5e666af76') { throw 'BLOCKED_PIN_MISMATCH' }
+      - name: Install and prove Windows program-specific outbound deny rules
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pythonExe = (python -c 'import sys; print(sys.executable)').Trim()
+          $bdExe = Join-Path $env:RUNNER_TEMP 'beads-offline-qualification\bin\bd.exe'
+          python -c 'import socket; s=socket.create_connection(("github.com",443),5); s.close(); print("BASELINE_EGRESS_OK")'
+          if ($LASTEXITCODE -ne 0) { throw 'BLOCKED_BASELINE_NETWORK' }
+          New-NetFirewallRule -DisplayName 'PROJ0071_OFFLINE_PYTHON' -Direction Outbound -Program $pythonExe -Action Block -Profile Any -Enabled True | Out-Null
+          New-NetFirewallRule -DisplayName 'PROJ0071_OFFLINE_BEADS' -Direction Outbound -Program $bdExe -Action Block -Profile Any -Enabled True | Out-Null
+          foreach ($name in @('PROJ0071_OFFLINE_PYTHON','PROJ0071_OFFLINE_BEADS')) {
+            $rule = Get-NetFirewallRule -DisplayName $name -ErrorAction Stop
+            if ($rule.Enabled -ne 'True' -or $rule.Direction -ne 'Outbound' -or $rule.Action -ne 'Block') { throw 'BLOCKED_FIREWALL_RULE' }
+            $program = ($rule | Get-NetFirewallApplicationFilter).Program
+            Write-Output "WINDOWS_EGRESS_BLOCK=$name PROGRAM=$program"
+          }
+          python -c 'import socket,sys; s=socket.socket(); rc=s.connect_ex(("1.1.1.1",443)); print("OFFLINE_PROBE",rc); sys.exit(0 if rc != 0 else 17)'
+          if ($LASTEXITCODE -ne 0) { throw 'BLOCKED_EGRESS_PROBE' }
+          Write-Output WINDOWS_PROCESS_EGRESS_BLOCK_VERIFIED
+      - name: Windows blocked-egress seed
+        shell: pwsh
+        run: |
+          python -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --platform windows --archive "$env:RUNNER_TEMP/beads_1.3.1_windows_amd64.zip" --workspace "$env:RUNNER_TEMP/beads-offline-qualification" --phase seed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows blocked-egress process restart and recovery
+        shell: pwsh
+        run: |
+          python -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --platform windows --archive "$env:RUNNER_TEMP/beads_1.3.1_windows_amd64.zip" --workspace "$env:RUNNER_TEMP/beads-offline-qualification" --phase resume
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Output WINDOWS_NETWORK_BLOCKED_RECOVERY_COMPLETE
+      - name: Restore Windows ephemeral runner firewall rules
+        if: always()
+        shell: pwsh
+        run: |
+          foreach ($name in @('PROJ0071_OFFLINE_PYTHON','PROJ0071_OFFLINE_BEADS')) {
+            Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
+          }
+# Synthetic only. No push/schedule, secrets, hooks, caches, paid runners or uploaded artifacts.
