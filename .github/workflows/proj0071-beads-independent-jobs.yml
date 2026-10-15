@@ -22,8 +22,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          curl --fail --location --retry 2 --max-time 240 --silent --show-error -o beads.tar.gz 'https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz'
-          printf '%s  %s\n' '3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c' beads.tar.gz | sha256sum --check
+          curl --fail --location --retry 2 --max-time 240 --silent --show-error -o beads_1.3.1_linux_amd64.tar.gz 'https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz'
+          printf '%s  %s\n' '3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c' beads_1.3.1_linux_amd64.tar.gz | sha256sum --check
           docker pull python:3.11.16-bookworm
           echo "CP09_IMAGE=$(docker image inspect python:3.11.16-bookworm --format '{{.Id}}')" >> "$GITHUB_ENV"
       - name: Seed synthetic graph within network-disabled container
@@ -37,7 +37,7 @@ jobs:
           docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" -v "$PWD:/src:ro" -v "$RUNNER_TEMP:/work:rw" -w /src \
             "$CP09_IMAGE" python3 -B "/src/$root/beads_independent_job_recovery.py" \
-            --phase seed --archive /work/beads.tar.gz --workspace /work/cp09-seed --transport /work/cp09-issues.jsonl
+            --phase seed --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/cp09-seed --transport /work/cp09-issues.jsonl
       - id: handoff
         name: Emit small public synthetic snapshot via native GitHub job outputs
         shell: bash
@@ -74,8 +74,8 @@ jobs:
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          curl --fail --location --retry 2 --max-time 240 --silent --show-error -o beads.tar.gz 'https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz'
-          printf '%s  %s\n' '3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c' beads.tar.gz | sha256sum --check
+          curl --fail --location --retry 2 --max-time 240 --silent --show-error -o beads_1.3.1_linux_amd64.tar.gz 'https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz'
+          printf '%s  %s\n' '3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c' beads_1.3.1_linux_amd64.tar.gz | sha256sum --check
           docker pull python:3.11.16-bookworm
           echo "CP09_IMAGE=$(docker image inspect python:3.11.16-bookworm --format '{{.Id}}')" >> "$GITHUB_ENV"
       - name: Restore and compare within fresh network-disabled container
@@ -86,6 +86,6 @@ jobs:
           docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
             --user "$(id -u):$(id -g)" -v "$PWD:/src:ro" -v "$RUNNER_TEMP:/work:rw" -w /src \
             "$CP09_IMAGE" python3 -B "/src/$root/beads_independent_job_recovery.py" \
-            --phase restore --archive /work/beads.tar.gz --workspace /work/cp09-restored \
+            --phase restore --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/cp09-restored \
             --transport /work/cp09-issues.jsonl --source-sha "$SOURCE_SHA256" --handoff-sha "$SYNTHETIC_SHA256"
           echo CP09_TWO_JOB_SYNTHETIC_CANDIDATE_ONLY
