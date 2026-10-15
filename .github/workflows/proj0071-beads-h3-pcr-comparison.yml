@@ -1,0 +1,45 @@
+# CP08 uses CP06's existing bounded public disposable Docker test pattern.
+# No paid runners, uploads, hooks, auto triggers, private data or secret tokens.
+name: PROJ-0071 Beads H3 PCR comparison MANUAL ONLY
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  h3-pcr-compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout synthetic public fixtures
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Pre-fetch pinned executable and Git-equipped image
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl --fail --location --retry 2 --max-time 240 --silent --show-error -o beads_1.3.1_linux_amd64.tar.gz 'https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz'
+          printf '%s  %s\n' '3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c' beads_1.3.1_linux_amd64.tar.gz | sha256sum --check
+          docker pull python:3.11.16-bookworm
+          echo "CP08_IMAGE_ID=$(docker image inspect python:3.11.16-bookworm --format '{{.Id}}')" >> "$GITHUB_ENV"
+      - name: Compare synthetic authority and Beads after independent offline restarts
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="PROJ-0071/Evaluations/Beads-v1.3.1"
+          test -n "$CP08_IMAGE_ID"
+          set -- --rm --network none --cap-drop ALL --security-opt no-new-privileges --user "$(id -u):$(id -g)" -v "$PWD:/src:ro" -v "$RUNNER_TEMP:/work:rw" -w /src
+          docker run "$@" "$CP08_IMAGE_ID" git --version
+          docker run "$@" "$CP08_IMAGE_ID" python3 -c 'import socket; s=socket.socket(); r=s.connect_ex(("1.1.1.1",443)); print("CP08_OFFLINE_PROBE",r); assert r != 0'
+          docker run "$@" "$CP08_IMAGE_ID" python3 -B "/src/$root/beads_h3_pcr_comparison.py" --self-test
+          docker run "$@" "$CP08_IMAGE_ID" python3 -B "/src/$root/beads_h3_pcr_comparison.py" --phase seed --case normal --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/cp08-normal
+          docker run "$@" "$CP08_IMAGE_ID" python3 -B "/src/$root/beads_h3_pcr_comparison.py" --phase recover --case normal --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/cp08-normal
+          docker run "$@" "$CP08_IMAGE_ID" python3 -B "/src/$root/beads_h3_pcr_comparison.py" --phase seed --case stale --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/cp08-stale
+          docker run "$@" "$CP08_IMAGE_ID" python3 -B "/src/$root/beads_h3_pcr_comparison.py" --phase recover --case stale --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/cp08-stale
+          docker run "$@" "$CP08_IMAGE_ID" python3 -B "/src/$root/beads_h3_pcr_comparison.py" --phase seed --case upstream_blocked --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/cp08-upstream
+          docker run "$@" "$CP08_IMAGE_ID" python3 -B "/src/$root/beads_h3_pcr_comparison.py" --phase recover --case upstream_blocked --archive /work/beads_1.3.1_linux_amd64.tar.gz --workspace /work/cp08-upstream
+          docker run "$@" "$CP08_IMAGE_ID" python3 -B "/src/$root/beads_h3_pcr_comparison.py" --phase recover --case missing --workspace /work/cp08-absent
+          echo CP08_H3_PCR_COMPARISON_CANDIDATE_ONLY

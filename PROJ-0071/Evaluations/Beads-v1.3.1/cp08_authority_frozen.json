@@ -1,0 +1,52 @@
+{
+  "fixture_id": "PROJ0071-CP08-FROZEN-SYNTHETIC-01",
+  "h3": {
+    "first_incomplete": "S120",
+    "completed": [
+      "S100",
+      "S110"
+    ],
+    "blocked": [
+      "S130"
+    ]
+  },
+  "pcr": {
+    "S100": {
+      "state": "COMPLETE",
+      "accepted": true,
+      "deps": []
+    },
+    "S110": {
+      "state": "COMPLETE",
+      "accepted": true,
+      "deps": []
+    },
+    "S120": {
+      "state": "INCOMPLETE",
+      "accepted": false,
+      "deps": [
+        "S110"
+      ]
+    },
+    "S130": {
+      "state": "BLOCKED",
+      "accepted": false,
+      "deps": [
+        "S140"
+      ]
+    },
+    "S140": {
+      "state": "INCOMPLETE",
+      "accepted": false,
+      "deps": []
+    }
+  },
+  "decisions": {
+    "promotion": "S130",
+    "rule": "REQUIRES_ACCEPTED_S140"
+  },
+  "failures": {
+    "unresolved": "S140",
+    "disposition": "BLOCKED"
+  }
+}
