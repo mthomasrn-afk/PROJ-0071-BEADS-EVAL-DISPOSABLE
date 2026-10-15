@@ -1,0 +1,60 @@
+# Separate bounded public synthetic qualification workflow. Manual only.
+name: PROJ-0071 Beads cold-start Linux Windows MANUAL ONLY
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-cold-start:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Harness negative tests
+        run: python3 -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --self-test
+      - name: Download and checksum exact Linux release
+        shell: bash
+        run: |
+          set -euo pipefail
+          file='beads_1.3.1_linux_amd64.tar.gz'
+          curl --fail --location --retry 2 --max-time 240 --silent --show-error -o "$file" 'https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz'
+          echo '3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c  beads_1.3.1_linux_amd64.tar.gz' | sha256sum -c -
+      - name: Linux checkpoint seed
+        shell: bash
+        run: python3 -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --platform linux --archive beads_1.3.1_linux_amd64.tar.gz --workspace "$RUNNER_TEMP/beads-cold-start" --phase seed
+      - name: Linux fresh-process recovery and adverse check
+        shell: bash
+        run: python3 -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --platform linux --archive beads_1.3.1_linux_amd64.tar.gz --workspace "$RUNNER_TEMP/beads-cold-start" --phase resume
+  windows-cold-start:
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Harness negative tests
+        shell: pwsh
+        run: python -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --self-test
+      - name: Download and checksum exact Windows release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $file = 'beads_1.3.1_windows_amd64.zip'
+          curl.exe --fail --location --retry 2 --max-time 240 --silent --show-error --output $file 'https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_windows_amd64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'BLOCKED_DOWNLOAD_FAILURE' }
+          $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Output "ARCHIVE_SHA256=$hash"
+          if ($hash -ne '48cd82e1d3e311c9bf9a5d6d67ad1a8542ae13d4e20c5bfb527656c5e666af76') { throw 'BLOCKED_PIN_MISMATCH' }
+      - name: Windows checkpoint seed
+        shell: pwsh
+        run: |
+          python -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --platform windows --archive beads_1.3.1_windows_amd64.zip --workspace "$env:RUNNER_TEMP/beads-cold-start" --phase seed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows fresh-process recovery and adverse check
+        shell: pwsh
+        run: |
+          python -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_cold_start_qualification.py --platform windows --archive beads_1.3.1_windows_amd64.zip --workspace "$env:RUNNER_TEMP/beads-cold-start" --phase resume
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# No automatic triggers, secrets, cache, artifacts, publication, or hooks.
