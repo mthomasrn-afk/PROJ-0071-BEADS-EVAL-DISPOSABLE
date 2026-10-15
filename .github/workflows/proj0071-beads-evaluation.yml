@@ -1,0 +1,49 @@
+# PROJ-0071 public synthetic candidate screen — manually dispatched only.
+name: PROJ-0071 Beads pinned synthetic recovery MANUAL ONLY
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  evaluate-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout synthetic fixture (pinned actions/checkout v4.2.2)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Harness self-tests (not Beads qualification)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_recovery_fixture.py --self-test
+      - name: Download pinned upstream Linux release and fail closed on SHA-256 mismatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          name='beads_1.3.1_linux_amd64.tar.gz'
+          curl --fail --location --retry 2 --max-time 240 --silent --show-error --output "$name" 'https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz'
+          actual="$(sha256sum "$name" | awk '{print $1}')"
+          expected='3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c'
+          echo "ARCHIVE_SHA256=$actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo 'BLOCKED_PIN_MISMATCH'
+            exit 64
+          fi
+          echo 'PIN_VERIFIED'
+      - name: Synthetic dependency interruption and recovery (no hooks or agents)
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 -B PROJ-0071/Evaluations/Beads-v1.3.1/beads_recovery_fixture.py --archive beads_1.3.1_linux_amd64.tar.gz --result beads_result.json
+          rc=$?
+          if [[ -f beads_result.json ]]; then
+            cat beads_result.json
+          else
+            echo 'BLOCKED_RESULT_MISSING'
+          fi
+          exit "$rc"
+# Intentional omissions: no automatic events, artifacts, caches, secrets, or mutations.
